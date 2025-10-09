@@ -80,8 +80,6 @@ enum class TenstorrentResetDevice : uint32_t {
     CONFIG_WRITE = 2
 };
 
-inline constexpr std::string_view TT_VISIBLE_DEVICES_ENV = "TT_VISIBLE_DEVICES";
-
 class PCIDevice {
     const std::string device_path;   // Path to character device: /dev/tenstorrent/N
     const int pci_device_num;        // N in /dev/tenstorrent/N
@@ -245,6 +243,13 @@ public:
      */
     static bool is_mapping_buffer_to_noc_supported();
 
+    /**
+     * Get the architecture of the PCIe device driver. The function enumerates PCIe devices on the system
+     * and returns the architecture of the first device it finds. If no devices are found, returns Invalid architecture.
+     * It also caches the value so subsequent calls are faster.
+     */
+    static tt::ARCH get_pcie_arch();
+
 public:
     // TODO: we can and should make all of these private.
     void *bar0_uc = nullptr;
@@ -286,6 +291,29 @@ public:
         }
         return reinterpret_cast<T *>(static_cast<uint8_t *>(reg_mapping) + register_offset);
     }
+
+private:
+    /**
+     * Function will allocate PCIe DMA buffer that UMD uses for PCIe DMA transfers. To make the process of allocation
+     * robust, allocation tries to allocate larger DMA buffers first and then shrinks the size until it reaches the
+     * minimum size of single page. The idea behind this is that in of IOMMU being turned on, bigger buffers could be
+     * allocated. In theory, bigger buffers should mean less DMA transfers and less overhead when performing PCIe DMA
+     * operations.
+     */
+    void allocate_pcie_dma_buffer();
+
+    /**
+     * Tries to allocate a PCIe DMA buffer of the specified size when IOMMU is enabled on the system.
+     * Uses PIN_PAGES IOCTL since ALLOCATE_DMA_BUF IOCTL has the upper limit on memory KMD can allocate for DMA
+     * transactions.
+     */
+    bool try_allocate_pcie_dma_buffer_iommu(const size_t dma_buf_size);
+
+    /**
+     * Tries to allocate a PCIe DMA buffer of the specified size when IOMMU is not enabled on the system.
+     * Uses ALLOCATE_DMA_BUF IOCTL which allocates physically contiguous memory for DMA transactions.
+     */
+    bool try_allocate_pcie_dma_buffer_no_iommu(const size_t dma_buf_size);
 };
 
 }  // namespace tt::umd

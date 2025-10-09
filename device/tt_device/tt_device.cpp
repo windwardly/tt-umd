@@ -32,6 +32,7 @@ TTDevice::TTDevice(
     std::shared_ptr<PCIDevice> pci_device, std::unique_ptr<architecture_implementation> architecture_impl) :
     pci_device_(pci_device),
     communication_device_type_(IODeviceType::PCIe),
+    communication_device_id_(pci_device_->get_device_num()),
     architecture_impl_(std::move(architecture_impl)),
     arch(architecture_impl_->get_architecture()) {
     lock_manager.initialize_mutex(MutexType::TT_DEVICE_IO, get_communication_device_id());
@@ -44,10 +45,16 @@ TTDevice::TTDevice(
     jtag_device_(jtag_device),
     jlink_id_(jlink_id),
     communication_device_type_(IODeviceType::JTAG),
+    communication_device_id_(jtag_device_->get_device_id(jlink_id_)),
     architecture_impl_(std::move(architecture_impl)),
     arch(architecture_impl_->get_architecture()) {
     lock_manager.initialize_mutex(MutexType::TT_DEVICE_IO, get_communication_device_id(), IODeviceType::JTAG);
 }
+
+TTDevice::TTDevice() {}
+
+TTDevice::TTDevice(std::unique_ptr<architecture_implementation> architecture_impl) :
+    architecture_impl_(std::move(architecture_impl)), arch(architecture_impl_->get_architecture()) {}
 
 void TTDevice::init_tt_device() {
     pre_init_hook();
@@ -57,8 +64,6 @@ void TTDevice::init_tt_device() {
     wait_arc_core_start();
     post_init_hook();
 }
-
-TTDevice::TTDevice() {}
 
 /* static */ std::unique_ptr<TTDevice> TTDevice::create(int device_number, IODeviceType device_type) {
     // TODO make abstract IO handler inside TTDevice.
@@ -294,7 +299,7 @@ void TTDevice::read_block(uint64_t byte_addr, uint64_t num_bytes, uint8_t *buffe
 
 void TTDevice::read_from_device(void *mem_ptr, tt_xy_pair core, uint64_t addr, uint32_t size) {
     if (communication_device_type_ == IODeviceType::JTAG) {
-        jtag_device_->read(jlink_id_, mem_ptr, core.x, core.y, addr, size);
+        jtag_device_->read(jlink_id_, mem_ptr, core.x, core.y, addr, size, umd_use_noc1 ? 1 : 0);
         return;
     }
     auto lock = lock_manager.acquire_mutex(MutexType::TT_DEVICE_IO, get_pci_device()->get_device_num());
@@ -313,7 +318,7 @@ void TTDevice::read_from_device(void *mem_ptr, tt_xy_pair core, uint64_t addr, u
 
 void TTDevice::write_to_device(const void *mem_ptr, tt_xy_pair core, uint64_t addr, uint32_t size) {
     if (communication_device_type_ == IODeviceType::JTAG) {
-        jtag_device_->write(jlink_id_, mem_ptr, core.x, core.y, addr, size);
+        jtag_device_->write(jlink_id_, mem_ptr, core.x, core.y, addr, size, umd_use_noc1 ? 1 : 0);
         return;
     }
     auto lock = lock_manager.acquire_mutex(MutexType::TT_DEVICE_IO, get_pci_device()->get_device_num());
@@ -374,7 +379,7 @@ dynamic_tlb TTDevice::set_dynamic_tlb(
     }
 
     log_trace(
-        LogSiliconDriver,
+        LogUMD,
         "set_dynamic_tlb with arguments: tlb_index = {}, start = ({}, {}), end = ({}, {}), address = 0x{:x}, "
         "multicast "
         "= {}, ordering = {}",
@@ -413,7 +418,7 @@ dynamic_tlb TTDevice::set_dynamic_tlb(
             .apply_offset(tlb_config.offset);
 
     log_trace(
-        LogSiliconDriver,
+        LogUMD,
         "set_dynamic_tlb() with tlb_index: {} tlb_index_offset: {} dynamic_tlb_size: {}MB tlb_base: 0x{:x} "
         "tlb_cfg_reg: 0x{:x} to core ({},{})",
         tlb_index,
@@ -461,8 +466,7 @@ void TTDevice::wait_dram_channel_training(const uint32_t dram_channel, const uin
         std::vector<DramTrainingStatus> dram_training_status = get_dram_training_status();
 
         if (dram_training_status.empty()) {
-            log_warning(
-                LogSiliconDriver, "DRAM training status is not available, breaking the wait for DRAM training.");
+            log_warning(LogUMD, "DRAM training status is not available, breaking the wait for DRAM training.");
             return;
         }
 
@@ -517,6 +521,15 @@ FirmwareInfoProvider *TTDevice::get_firmware_info_provider() const { return firm
 semver_t TTDevice::get_firmware_version() { return get_firmware_info_provider()->get_firmware_version(); }
 
 TTDevice::~TTDevice() {
+    // Remote TTDevices actually use TTDevice from remote_communication object.
+    // Even though they extend TTDevices, they don't actually act as TTDevices but
+    // as wrappers around remote communication which contain TTDevices.
+    // Therefore, they don't need to clear mutexes since they don't use them directly.
+    // Moreover, if they would try to clear mutexes, it would cause errors since Remote TTDevice
+    // didn't initialize its own PCIDevice which is needed to identify the right mutex.
+    if (is_remote_tt_device) {
+        return;
+    }
     lock_manager.clear_mutex(MutexType::TT_DEVICE_IO, get_communication_device_id(), communication_device_type_);
 }
 
@@ -524,10 +537,7 @@ void TTDevice::wait_for_non_mmio_flush() {}
 
 bool TTDevice::is_remote() { return is_remote_tt_device; }
 
-int TTDevice::get_communication_device_id() const {
-    return communication_device_type_ == IODeviceType::PCIe ? pci_device_->get_device_num()
-                                                            : jtag_device_->get_device_id(jlink_id_);
-}
+int TTDevice::get_communication_device_id() const { return communication_device_id_; }
 
 IODeviceType TTDevice::get_communication_device_type() const { return communication_device_type_; }
 
@@ -574,7 +584,7 @@ ChipInfo TTDevice::get_chip_info() {
     ChipInfo chip_info;
 
     chip_info.noc_translation_enabled = get_noc_translation_enabled();
-    chip_info.chip_uid.board_id = get_board_id();
+    chip_info.board_id = get_board_id();
     chip_info.board_type = get_board_type();
     chip_info.asic_location = get_asic_location();
 

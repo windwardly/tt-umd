@@ -11,7 +11,7 @@
 #include "filesystem"
 #include "gtest/gtest.h"
 #include "tests/galaxy/test_galaxy_common.hpp"
-#include "tests/test_utils/generate_cluster_desc.hpp"
+#include "tests/test_utils/fetch_local_files.hpp"
 #include "tests/test_utils/stimulus_generators.hpp"
 #include "tests/wormhole/test_wh_common.hpp"
 #include "umd/device/cluster.hpp"
@@ -56,7 +56,7 @@ TEST_F(WormholeGalaxyStabilityTestFixture, MixedRemoteTransfers) {
     int seed = 0;
 
     assert(cluster != nullptr);
-    log_info(LogSiliconDriver, "Started MixedRemoteTransfers");
+    log_info(LogUMD, "Started MixedRemoteTransfers");
     std::vector<remote_transfer_sample_t> command_history;
     try {
         RunMixedTransfersUniformDistributions(
@@ -85,7 +85,7 @@ TEST_F(WormholeGalaxyStabilityTestFixture, MixedRemoteTransfers) {
 TEST_F(WormholeGalaxyStabilityTestFixture, DISABLED_MultithreadedMixedRemoteTransfersMediumSmall) {
     int seed = 0;
 
-    log_info(LogSiliconDriver, "Started MultithreadedMixedRemoteTransfersMediumSmall");
+    log_info(LogUMD, "Started MultithreadedMixedRemoteTransfersMediumSmall");
 
     assert(cluster != nullptr);
     std::thread t1([&]() {

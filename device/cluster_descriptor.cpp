@@ -83,7 +83,7 @@ bool ClusterDescriptor::is_chip_remote(const chip_id_t chip_id) const { return !
 // the function returns the total distance of travelled between shelves and racks, plust the x&y dim difference
 int ClusterDescriptor::get_ethernet_link_coord_distance(
     const eth_coord_t &location_a, const eth_coord_t &location_b) const {
-    log_trace(LogSiliconDriver, "get_ethernet_link_coord_distance from {} to {}", location_a, location_b);
+    log_trace(LogUMD, "get_ethernet_link_coord_distance from {} to {}", location_a, location_b);
 
     if (location_a.cluster_id != location_b.cluster_id) {
         return std::numeric_limits<int>::max();
@@ -135,7 +135,7 @@ int ClusterDescriptor::get_ethernet_link_coord_distance(
             }
             distance = std::min(distance, distance_to_exit + distance_in_next_shelf + 1);
         }
-        log_trace(LogSiliconDriver, "\tdistance from {} to {} is {}", location_a, location_b, distance);
+        log_trace(LogUMD, "\tdistance from {} to {} is {}", location_a, location_b, distance);
         return distance;
     } else if (location_a.shelf > location_b.shelf) {
         // this is already verified where galaxy_shelves_exit_chip_coords_per_y_dim is populated, but just to be safe
@@ -178,7 +178,7 @@ int ClusterDescriptor::get_ethernet_link_coord_distance(
             }
             distance = std::min(distance, distance_to_exit + distance_in_next_shelf + 1);
         }
-        log_trace(LogSiliconDriver, "\tdistance from {} to {} is {}", location_a, location_b, distance);
+        log_trace(LogUMD, "\tdistance from {} to {} is {}", location_a, location_b, distance);
         return distance;
     }
 
@@ -224,7 +224,7 @@ int ClusterDescriptor::get_ethernet_link_coord_distance(
             }
             distance = std::min(distance, distance_to_exit + distance_in_next_rack + 1);
         }
-        log_trace(LogSiliconDriver, "\tdistance from {} to {} is {}", location_a, location_b, distance);
+        log_trace(LogUMD, "\tdistance from {} to {} is {}", location_a, location_b, distance);
 
         return distance;
     } else if (location_a.rack > location_b.rack) {
@@ -268,12 +268,12 @@ int ClusterDescriptor::get_ethernet_link_coord_distance(
             }
             distance = std::min(distance, distance_to_exit + distance_in_next_rack + 1);
         }
-        log_trace(LogSiliconDriver, "\tdistance from {} to {} is {}", location_a, location_b, distance);
+        log_trace(LogUMD, "\tdistance from {} to {} is {}", location_a, location_b, distance);
 
         return distance;
     }
 
-    log_trace(LogSiliconDriver, "\tdistance from {} to {} is {}", location_a, location_b, x_distance + y_distance);
+    log_trace(LogUMD, "\tdistance from {} to {} is {}", location_a, location_b, x_distance + y_distance);
 
     // on same shelf/rack, the distance is just x+y difference
     return x_distance + y_distance;
@@ -281,7 +281,7 @@ int ClusterDescriptor::get_ethernet_link_coord_distance(
 
 // Returns the closest mmio chip to the given chip
 chip_id_t ClusterDescriptor::get_closest_mmio_capable_chip(const chip_id_t chip) {
-    log_debug(LogSiliconDriver, "get_closest_mmio_chip to chip{}", chip);
+    log_debug(LogUMD, "get_closest_mmio_chip to chip{}", chip);
 
     if (this->is_chip_mmio_capable(chip)) {
         return chip;
@@ -299,10 +299,10 @@ chip_id_t ClusterDescriptor::get_closest_mmio_capable_chip(const chip_id_t chip)
         const chip_id_t &mmio_chip = pair.first;
         eth_coord_t mmio_eth_coord = this->chip_locations.at(mmio_chip);
 
-        log_debug(LogSiliconDriver, "Checking chip{} at {}", mmio_chip, mmio_eth_coord);
+        log_debug(LogUMD, "Checking chip{} at {}", mmio_chip, mmio_eth_coord);
 
         int distance = get_ethernet_link_coord_distance(mmio_eth_coord, chip_eth_coord);
-        log_debug(LogSiliconDriver, "Distance from chip{} to chip{} is {}", chip, mmio_chip, distance);
+        log_debug(LogUMD, "Distance from chip{} to chip{} is {}", chip, mmio_chip, distance);
         if (distance < min_distance) {
             min_distance = distance;
             closest_chip = mmio_chip;
@@ -313,7 +313,7 @@ chip_id_t ClusterDescriptor::get_closest_mmio_capable_chip(const chip_id_t chip)
 
     TT_ASSERT(is_chip_mmio_capable(closest_chip), "Closest MMIO chip must be MMIO capable");
 
-    log_debug(LogSiliconDriver, "closest_mmio_chip to chip{} is chip{} distance:{}", chip, closest_chip, min_distance);
+    log_debug(LogUMD, "closest_mmio_chip to chip{} is chip{} distance:{}", chip, closest_chip, min_distance);
 
     closest_mmio_chip_cache[chip] = closest_chip;
 
@@ -407,8 +407,6 @@ std::unique_ptr<ClusterDescriptor> ClusterDescriptor::create_constrained_cluster
     // desc->closest_mmio_chip_cache is not copied intentionally, it could hold wrong information.
     desc->chip_board_type = filter_chip_collection(full_cluster_desc->chip_board_type, target_chip_ids);
     desc->chip_arch = filter_chip_collection(full_cluster_desc->chip_arch, target_chip_ids);
-    desc->chip_uid_to_chip_id = filter_chip_collection(full_cluster_desc->chip_uid_to_chip_id, target_chip_ids);
-    desc->chip_id_to_chip_uid = filter_chip_collection(full_cluster_desc->chip_id_to_chip_uid, target_chip_ids);
     desc->chip_unique_ids = filter_chip_collection(full_cluster_desc->chip_unique_ids, target_chip_ids);
     // Note that these preserve the full set of channels. So some channels will be reported as active
     // even though their corresponding entries won't be found in ethernet_connections. We want this behavior
@@ -416,10 +414,14 @@ std::unique_ptr<ClusterDescriptor> ClusterDescriptor::create_constrained_cluster
     desc->active_eth_channels = filter_chip_collection(full_cluster_desc->active_eth_channels, target_chip_ids);
     desc->idle_eth_channels = filter_chip_collection(full_cluster_desc->idle_eth_channels, target_chip_ids);
 
+    desc->chip_to_bus_id = filter_chip_collection(full_cluster_desc->chip_to_bus_id, target_chip_ids);
+
     desc->galaxy_shelves_exit_chip_coords_per_y_dim = full_cluster_desc->galaxy_shelves_exit_chip_coords_per_y_dim;
     desc->galaxy_racks_exit_chip_coords_per_x_dim = full_cluster_desc->galaxy_racks_exit_chip_coords_per_x_dim;
 
     desc->harvesting_masks_map = filter_chip_collection(full_cluster_desc->harvesting_masks_map, target_chip_ids);
+
+    desc->asic_locations = filter_chip_collection(full_cluster_desc->asic_locations, target_chip_ids);
 
     // Write explicitly filters for more complex structures.
     for (const auto &[chip_id, eth_connections] : full_cluster_desc->ethernet_connections) {
@@ -478,7 +480,7 @@ std::unique_ptr<ClusterDescriptor> ClusterDescriptor::create_mock_cluster(
             break;
         default:
             board_type = BoardType::UNKNOWN;
-            log_error(LogSiliconDriver, "Unsupported architecture for mock cluster");
+            log_error(LogUMD, "Unsupported architecture for mock cluster");
             break;
     }
 
@@ -488,7 +490,7 @@ std::unique_ptr<ClusterDescriptor> ClusterDescriptor::create_mock_cluster(
         desc->chip_locations.insert({logical_id, chip_location});
         desc->coords_to_chip_ids[chip_location.rack][chip_location.shelf][chip_location.y][chip_location.x] =
             logical_id;
-        log_debug(tt::LogSiliconDriver, "{} - adding logical: {}", __FUNCTION__, logical_id);
+        log_debug(tt::LogUMD, "{} - adding logical: {}", __FUNCTION__, logical_id);
         desc->chip_board_type.insert({logical_id, board_type});
         desc->chips_with_mmio.insert({logical_id, logical_id});
         desc->chip_arch.insert({logical_id, arch});
@@ -558,11 +560,11 @@ void ClusterDescriptor::load_ethernet_connections_from_connectivity_descriptor(Y
 
     // std::unordered_map<ethernet_channel_t, std::tuple<chip_id_t, ethernet_channel_t>>> ethernet_connections;
 
-    log_debug(LogSiliconDriver, "Ethernet Connectivity Descriptor:");
+    log_debug(LogUMD, "Ethernet Connectivity Descriptor:");
     for (const auto &[chip, chan_to_chip_chan_map] : ethernet_connections) {
         for (const auto &[chan, chip_and_chan] : chan_to_chip_chan_map) {
             log_debug(
-                LogSiliconDriver,
+                LogUMD,
                 "\tchip: {}, chan: {}  <-->  chip: {}, chan: {}",
                 chip,
                 chan,
@@ -571,16 +573,16 @@ void ClusterDescriptor::load_ethernet_connections_from_connectivity_descriptor(Y
         }
     }
 
-    log_debug(LogSiliconDriver, "Chip Coordinates:");
+    log_debug(LogUMD, "Chip Coordinates:");
     for (const auto &[rack_id, rack_chip_map] : coords_to_chip_ids) {
         for (const auto &[shelf_id, shelf_chip_map] : rack_chip_map) {
-            log_debug(LogSiliconDriver, "\tRack:{} Shelf:{}", rack_id, shelf_id);
+            log_debug(LogUMD, "\tRack:{} Shelf:{}", rack_id, shelf_id);
             for (const auto &[row, row_chip_map] : shelf_chip_map) {
                 std::stringstream row_chips;
                 for (const auto &[col, chip_id] : row_chip_map) {
                     row_chips << chip_id << "\t";
                 }
-                log_debug(LogSiliconDriver, "\t\t{}", row_chips.str());
+                log_debug(LogUMD, "\t\t{}", row_chips.str());
             }
         }
     }
@@ -601,6 +603,11 @@ void ClusterDescriptor::load_ethernet_connections_from_connectivity_descriptor(Y
             uint64_t chip_1 = endpoints.at(1)["remote_chip_id"].as<uint64_t>();
             int channel_1 = endpoints.at(1)["chan"].as<int>();
             ethernet_connections_to_remote_devices[chip_0][channel_0] = {chip_1, channel_1};
+
+            // Mark the local channel as active and remove from idle, to accurately represent used Ethernet channels in
+            // mock clusters (matching real hardware discovery)
+            active_eth_channels[chip_0].insert(channel_0);
+            idle_eth_channels[chip_0].erase(channel_0);
         }
     }
 }
@@ -682,13 +689,9 @@ void ClusterDescriptor::fill_galaxy_connections() {
     for (const auto &[shelf, shelf_exit_chip_coords_per_y_dim] : galaxy_shelves_exit_chip_coords_per_y_dim) {
         for (const auto &[y_dim, shelf_exit_chip_coords] : shelf_exit_chip_coords_per_y_dim) {
             log_debug(
-                LogSiliconDriver,
-                "shelf: {} y_dim: {} exit_coord:{}",
-                shelf,
-                y_dim,
-                shelf_exit_chip_coords.source_chip_coord);
+                LogUMD, "shelf: {} y_dim: {} exit_coord:{}", shelf, y_dim, shelf_exit_chip_coords.source_chip_coord);
             for (const auto &destination_chip_coord : shelf_exit_chip_coords.destination_chip_coords) {
-                log_debug(LogSiliconDriver, "\tdestination_chip_coord: {}", destination_chip_coord);
+                log_debug(LogUMD, "\tdestination_chip_coord:{}", destination_chip_coord);
             }
         }
     }
@@ -708,13 +711,9 @@ void ClusterDescriptor::fill_galaxy_connections() {
     for (const auto &[rack, rack_exit_chip_coords_per_x_dim] : galaxy_racks_exit_chip_coords_per_x_dim) {
         for (const auto &[x_dim, rack_exit_chip_coords] : rack_exit_chip_coords_per_x_dim) {
             log_debug(
-                LogSiliconDriver,
-                "rack: {} x_dim: {} exit_coord: {}",
-                rack,
-                x_dim,
-                rack_exit_chip_coords.source_chip_coord);
+                LogUMD, "rack: {} x_dim: {} exit_coord: {}", rack, x_dim, rack_exit_chip_coords.source_chip_coord);
             for (const auto &destination_chip_coord : rack_exit_chip_coords.destination_chip_coords) {
-                log_debug(LogSiliconDriver, "\tdestination_chip_coord:{}}", destination_chip_coord);
+                log_debug(LogUMD, "\tdestination_chip_coord:{}}", destination_chip_coord);
             }
         }
     }
@@ -724,19 +723,19 @@ void ClusterDescriptor::merge_cluster_ids() {
     DisjointSet<chip_id_t> chip_sets;
     for (const auto &[chip, _] : chip_locations) {
         chip_sets.add_item(chip);
-        log_debug(LogSiliconDriver, "Adding chip {} to disjoint set", chip);
+        log_debug(LogUMD, "Adding chip {} to disjoint set", chip);
     }
 
     for (const auto &[chip, chan_to_chip_chan_map] : ethernet_connections) {
         for (const auto &[chan, dest_chip_chan_tuple] : chan_to_chip_chan_map) {
             chip_sets.merge(chip, std::get<0>(dest_chip_chan_tuple));
-            log_debug(LogSiliconDriver, "Merging chip {} and chip {}", chip, std::get<0>(dest_chip_chan_tuple));
+            log_debug(LogUMD, "Merging chip {} and chip {}", chip, std::get<0>(dest_chip_chan_tuple));
         }
     }
 
     for (const auto &[chip, chip_eth_coords] : chip_locations) {
         chip_locations[chip].cluster_id = chip_sets.get_set(chip);
-        log_debug(LogSiliconDriver, "Chip {} belongs to cluster {}", chip, chip_sets.get_set(chip));
+        log_debug(LogUMD, "Chip {} belongs to cluster {}", chip, chip_sets.get_set(chip));
     }
 }
 
@@ -770,9 +769,9 @@ void ClusterDescriptor::load_chips_from_connectivity_descriptor(YAML::Node &yaml
             chips_with_mmio.insert({chip_val, chip_val});
         }
     }
-    log_debug(LogSiliconDriver, "Device IDs and Locations:");
+    log_debug(LogUMD, "Device IDs and Locations:");
     for (const auto &[chip_id, chip_location] : chip_locations) {
-        log_debug(LogSiliconDriver, "\tchip: {}, coord: {}", chip_id, chip_location);
+        log_debug(LogUMD, "\tchip: {}, coord: {}", chip_id, chip_location);
     }
 
     if (yaml["chip_to_boardtype"]) {
@@ -782,7 +781,7 @@ void ClusterDescriptor::load_chips_from_connectivity_descriptor(YAML::Node &yaml
             BoardType board_type = board_type_from_string(board_type_str);
             if (board_type == BoardType::UNKNOWN) {
                 log_warning(
-                    LogSiliconDriver,
+                    LogUMD,
                     "Unknown board type for chip {}. This might happen because chip is running old firmware. "
                     "Defaulting to UNKNOWN",
                     chip);
@@ -821,6 +820,32 @@ void ClusterDescriptor::load_chips_from_connectivity_descriptor(YAML::Node &yaml
             chip_unique_ids.insert({chip, unique_id});
         }
     }
+
+    if (yaml["chip_to_bus_id"]) {
+        for (const auto &chip_bus_id : yaml["chip_to_bus_id"].as<std::map<int, std::string>>()) {
+            auto &chip = chip_bus_id.first;
+            std::string bus_str = chip_bus_id.second;
+
+            // Enforce '0x' prefix.
+            if (bus_str.substr(0, 2) != "0x") {
+                std::string msg =
+                    "Bus string without 0x prefix for chip " + std::to_string(chip) + ": \"" + bus_str + "\"";
+                throw std::runtime_error(msg);
+            }
+            bus_str = bus_str.substr(2);
+
+            uint16_t bus_id = static_cast<uint16_t>(std::stoul(bus_str, nullptr, 16));
+            chip_to_bus_id.insert({chip, bus_id});
+        }
+    }
+
+    if (yaml["asic_locations"]) {
+        for (const auto &chip_asic_locations : yaml["asic_locations"].as<std::map<int, uint64_t>>()) {
+            auto &chip = chip_asic_locations.first;
+            auto &asic_location = chip_asic_locations.second;
+            asic_locations.insert({chip, asic_location});
+        }
+    }
 }
 
 void ClusterDescriptor::load_harvesting_information(YAML::Node &yaml) {
@@ -856,12 +881,16 @@ void ClusterDescriptor::load_harvesting_information(YAML::Node &yaml) {
 }
 
 void ClusterDescriptor::fill_chips_grouped_by_closest_mmio() {
-    // This is in case that we are not using ETH coordinates and have remote chip.
-    if (this->all_chips.empty() || chip_locations.empty()) {
-        return;
-    }
     for (const auto &chip : this->all_chips) {
-        // This will also fill up the closest_mmio_chip_cache
+        if (this->is_chip_mmio_capable(chip)) {
+            this->chips_grouped_by_closest_mmio[chip].insert(chip);
+            continue;
+        }
+        // TODO: This is to handle the case when we are not using ETH coordinates and have remote chip.
+        // Obviously, we have to figure out how to handle these cases in general in the future.
+        if (this->chip_locations.empty()) {
+            continue;
+        }
         chip_id_t closest_mmio_chip = get_closest_mmio_capable_chip(chip);
         this->chips_grouped_by_closest_mmio[closest_mmio_chip].insert(chip);
     }
@@ -875,6 +904,13 @@ ClusterDescriptor::get_ethernet_connections() const {
 const std::unordered_map<chip_id_t, std::unordered_map<ethernet_channel_t, std::tuple<uint64_t, ethernet_channel_t>>> &
 ClusterDescriptor::get_ethernet_connections_to_remote_devices() const {
     return this->ethernet_connections_to_remote_devices;
+}
+
+const eth_coord_t ClusterDescriptor::get_chip_location(const chip_id_t chip) const {
+    if (chip_locations.find(chip) == chip_locations.end()) {
+        return {0, 0, 0, 0};
+    }
+    return chip_locations.at(chip);
 }
 
 const std::unordered_map<chip_id_t, eth_coord_t> &ClusterDescriptor::get_chip_locations() const {
@@ -946,6 +982,20 @@ BoardType ClusterDescriptor::get_board_type(chip_id_t chip_id) const {
     return chip_board_type.at(chip_id);
 }
 
+tt::ARCH ClusterDescriptor::get_arch() const {
+    const std::unordered_set<chip_id_t> &chips = get_all_chips();
+    if (chips.empty()) {
+        TT_THROW("Unable to determine architecture because no chips were detected.");
+    }
+
+    // We already validated that all chips have the same arch
+    tt::ARCH arch = get_arch(*chips.begin());
+    if (arch == tt::ARCH::Invalid) {
+        TT_THROW("Chip {} has invalid architecture.", *chips.begin());
+    }
+    return arch;
+}
+
 tt::ARCH ClusterDescriptor::get_arch(chip_id_t chip_id) const {
     TT_ASSERT(
         chip_arch.find(chip_id) != chip_arch.end(),
@@ -957,27 +1007,6 @@ tt::ARCH ClusterDescriptor::get_arch(chip_id_t chip_id) const {
 const std::unordered_map<chip_id_t, std::unordered_set<chip_id_t>> &
 ClusterDescriptor::get_chips_grouped_by_closest_mmio() const {
     return chips_grouped_by_closest_mmio;
-}
-
-void ClusterDescriptor::add_chip_uid(const chip_id_t chip_id, const ChipUID &chip_uid) {
-    chip_id_to_chip_uid[chip_id] = chip_uid;
-    chip_uid_to_chip_id[chip_uid] = chip_id;
-}
-
-std::optional<chip_id_t> ClusterDescriptor::get_chip_id(const ChipUID &chip_uid) const {
-    auto chip_id_it = chip_uid_to_chip_id.find(chip_uid);
-    if (chip_id_it == chip_uid_to_chip_id.end()) {
-        return std::nullopt;
-    }
-    return chip_id_it->second;
-}
-
-std::optional<ChipUID> ClusterDescriptor::get_chip_uid(chip_id_t chip_id) const {
-    auto chip_uid_it = chip_id_to_chip_uid.find(chip_id);
-    if (chip_uid_it == chip_id_to_chip_uid.end()) {
-        return std::nullopt;
-    }
-    return chip_uid_it->second;
 }
 
 std::string ClusterDescriptor::serialize() const {
@@ -1082,6 +1111,14 @@ std::string ClusterDescriptor::serialize() const {
     }
     out << YAML::EndMap;
 
+    out << YAML::Key << "chip_to_bus_id" << YAML::Value << YAML::BeginMap;
+    std::map<chip_id_t, uint16_t> sorted_chip_to_bus_id(chip_to_bus_id.begin(), chip_to_bus_id.end());
+    for (const auto &[chip, bus_id] : sorted_chip_to_bus_id) {
+        std::string hex_bus_id = fmt::format("0x{:04x}", bus_id);
+        out << YAML::Key << chip << YAML::Value << hex_bus_id;
+    }
+    out << YAML::EndMap;
+
     out << YAML::Key << "boards" << YAML::Value << YAML::BeginSeq;
     for (const auto &[board_id, chips] : board_to_chips) {
         out << YAML::BeginSeq;
@@ -1100,6 +1137,14 @@ std::string ClusterDescriptor::serialize() const {
         out << YAML::EndSeq;
     }
     out << YAML::EndSeq;
+
+    out << YAML::Key << "asic_locations" << YAML::Value << YAML::BeginMap;
+    std::map<chip_id_t, uint8_t> asic_locations_map =
+        std::map<chip_id_t, uint8_t>(asic_locations.begin(), asic_locations.end());
+    for (const auto &[chip_id, asic_location] : asic_locations_map) {
+        out << YAML::Key << chip_id << YAML::Value << static_cast<int>(asic_location);
+    }
+    out << YAML::EndMap;
 
     out << YAML::EndMap;
 
@@ -1180,7 +1225,7 @@ std::unordered_set<chip_id_t> ClusterDescriptor::get_board_chips(const uint64_t 
 void ClusterDescriptor::verify_cluster_descriptor_info() {
     for (const chip_id_t chip : all_chips) {
         if (!chip_to_board_id.empty() && chip_to_board_id.find(chip) == chip_to_board_id.end()) {
-            log_warning(LogSiliconDriver, "Chip {} does not have a board ID assigned.", chip);
+            log_warning(LogUMD, "Chip {} does not have a board ID assigned.", chip);
         }
     }
 
@@ -1189,12 +1234,25 @@ void ClusterDescriptor::verify_cluster_descriptor_info() {
         const uint32_t number_chips_from_board = get_number_of_chips_from_board_type(board_type);
         if (chips.size() != number_chips_from_board) {
             log_warning(
-                LogSiliconDriver,
+                LogUMD,
                 "Board {:#x} has {} chips, but expected {} chips for board type {}.",
                 board_id,
                 chips.size(),
                 number_chips_from_board,
                 board_type_to_string(board_type));
+        }
+    }
+
+    const std::unordered_set<chip_id_t> &chips = get_all_chips();
+    if (!chips.empty()) {
+        tt::ARCH arch = get_arch(*chips.begin());
+        if (arch == tt::ARCH::Invalid) {
+            TT_THROW("Chip {} has invalid architecture.", *chips.begin());
+        }
+        bool all_same_arch =
+            std::all_of(chips.begin(), chips.end(), [&](chip_id_t chip_id) { return this->get_arch(chip_id) == arch; });
+        if (!all_same_arch) {
+            TT_THROW("Chips with differing architectures detected. This is unsupported.");
         }
     }
 }
@@ -1208,5 +1266,13 @@ uint8_t ClusterDescriptor::get_asic_location(chip_id_t chip_id) const {
 }
 
 IODeviceType ClusterDescriptor::get_io_device_type() const { return io_device_type; }
+
+uint16_t ClusterDescriptor::get_bus_id(chip_id_t chip_id) const {
+    auto it = chip_to_bus_id.find(chip_id);
+    if (it == chip_to_bus_id.end()) {
+        return 0;
+    }
+    return it->second;
+}
 
 }  // namespace tt::umd

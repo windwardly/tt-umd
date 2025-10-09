@@ -10,7 +10,7 @@
 #include "blackhole/l1_address_map.h"
 #include "gtest/gtest.h"
 #include "tests/test_utils/device_test_utils.hpp"
-#include "tests/test_utils/generate_cluster_desc.hpp"
+#include "tests/test_utils/fetch_local_files.hpp"
 #include "umd/device/arch/blackhole_implementation.hpp"
 #include "umd/device/cluster.hpp"
 #include "umd/device/cluster_descriptor.hpp"
@@ -221,7 +221,7 @@ TEST(SiliconDriverBH, UnalignedStaticTLB_RW) {
             cluster.configure_tlb(
                 chip_id,
                 core,
-                get_static_tlb_index_callback(sdesc.translate_coord_to(core, CoordSystem::VIRTUAL)),
+                get_static_tlb_index_callback(sdesc.translate_coord_to(core, CoordSystem::TRANSLATED)),
                 l1_mem::address_map::NCRISC_FIRMWARE_BASE);
         }
     }
@@ -273,7 +273,7 @@ TEST(SiliconDriverBH, StaticTLB_RW) {
             cluster.configure_tlb(
                 chip_id,
                 core,
-                get_static_tlb_index_callback(sdesc.translate_coord_to(core, CoordSystem::VIRTUAL)),
+                get_static_tlb_index_callback(sdesc.translate_coord_to(core, CoordSystem::TRANSLATED)),
                 l1_mem::address_map::NCRISC_FIRMWARE_BASE);
         }
     }
@@ -447,7 +447,7 @@ TEST(SiliconDriverBH, MultiThreadedMemBar) {
             cluster.configure_tlb(
                 chip_id,
                 core,
-                get_static_tlb_index_callback(sdesc.translate_coord_to(core, CoordSystem::VIRTUAL)),
+                get_static_tlb_index_callback(sdesc.translate_coord_to(core, CoordSystem::TRANSLATED)),
                 base_addr);
         }
     }
@@ -465,7 +465,7 @@ TEST(SiliconDriverBH, MultiThreadedMemBar) {
     }
 
     for (int chan = 0; chan < cluster.get_soc_descriptor(0).get_num_dram_channels(); chan++) {
-        CoreCoord core = cluster.get_soc_descriptor(0).get_dram_core_for_channel(chan, 0, CoordSystem::VIRTUAL);
+        CoreCoord core = cluster.get_soc_descriptor(0).get_dram_core_for_channel(chan, 0, CoordSystem::TRANSLATED);
         test_utils::read_data_from_device(cluster, readback_membar_vec, 0, core, 0, 4);
         ASSERT_EQ(
             readback_membar_vec.at(0), 187);  // Ensure that memory barriers were correctly initialized on all DRAM
@@ -602,7 +602,7 @@ TEST(SiliconDriverBH, DISABLED_BroadcastWrite) {  // Cannot broadcast to tensix/
             }
             for (int chan = 0; chan < cluster.get_soc_descriptor(chip_id).get_num_dram_channels(); chan++) {
                 const CoreCoord core =
-                    cluster.get_soc_descriptor(chip_id).get_dram_core_for_channel(chan, 0, CoordSystem::VIRTUAL);
+                    cluster.get_soc_descriptor(chip_id).get_dram_core_for_channel(chan, 0, CoordSystem::TRANSLATED);
                 test_utils::read_data_from_device(
                     cluster, readback_vec, chip_id, core, address, vector_to_write.size() * 4);
                 ASSERT_EQ(vector_to_write, readback_vec)
@@ -687,7 +687,7 @@ TEST(SiliconDriverBH, DISABLED_VirtualCoordinateBroadcast) {  // same problem as
             }
             for (int chan = 0; chan < cluster.get_soc_descriptor(chip_id).get_num_dram_channels(); chan++) {
                 const CoreCoord core =
-                    cluster.get_soc_descriptor(chip_id).get_dram_core_for_channel(chan, 0, CoordSystem::VIRTUAL);
+                    cluster.get_soc_descriptor(chip_id).get_dram_core_for_channel(chan, 0, CoordSystem::TRANSLATED);
                 test_utils::read_data_from_device(
                     cluster, readback_vec, chip_id, core, address, vector_to_write.size() * 4);
                 ASSERT_EQ(vector_to_write, readback_vec)

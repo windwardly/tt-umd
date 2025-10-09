@@ -159,17 +159,17 @@ void LocalChip::initialize_default_chip_mutexes() {
 
 void LocalChip::initialize_membars() {
     set_membar_flag(
-        soc_descriptor_.get_cores(CoreType::TENSIX, CoordSystem::VIRTUAL),
+        soc_descriptor_.get_cores(CoreType::TENSIX, CoordSystem::TRANSLATED),
         MemBarFlag::RESET,
         l1_address_params.tensix_l1_barrier_base);
     set_membar_flag(
-        soc_descriptor_.get_cores(CoreType::ETH, CoordSystem::VIRTUAL),
+        soc_descriptor_.get_cores(CoreType::ETH, CoordSystem::TRANSLATED),
         MemBarFlag::RESET,
         l1_address_params.eth_l1_barrier_base);
 
     std::vector<CoreCoord> dram_cores_vector = {};
     for (std::uint32_t dram_idx = 0; dram_idx < soc_descriptor_.get_num_dram_channels(); dram_idx++) {
-        dram_cores_vector.push_back(soc_descriptor_.get_dram_core_for_channel(dram_idx, 0, CoordSystem::VIRTUAL));
+        dram_cores_vector.push_back(soc_descriptor_.get_dram_core_for_channel(dram_idx, 0, CoordSystem::TRANSLATED));
     }
     set_membar_flag(dram_cores_vector, MemBarFlag::RESET, dram_address_params.DRAM_BARRIER_BASE);
 }
@@ -189,9 +189,7 @@ void LocalChip::start_device() {
 
     // TODO: acquire mutex should live in Chip class. Currently we don't have unique id for all chips.
     // The lock here should suffice since we have to open Local chip to have Remote chips initialized.
-    // TODO: Enable this once all tt-metal tests are passing.
-    // chip_started_lock_.emplace(acquire_mutex(MutexType::CHIP_IN_USE,
-    // tt_device_->get_pci_device()->get_device_num()));
+    chip_started_lock_.emplace(acquire_mutex(MutexType::CHIP_IN_USE, tt_device_->get_pci_device()->get_device_num()));
 
     check_pcie_device_initialized();
     sysmem_manager_->pin_or_map_sysmem_to_device();
@@ -222,7 +220,7 @@ int LocalChip::get_num_host_channels() {
     // pcie device breaks or isn't present.
     if (!sysmem_manager_) {
         log_warning(
-            LogSiliconDriver,
+            LogUMD,
             "sysmem_manager was not initialized for {} communication protocol",
             DeviceTypeToString.at(tt_device_->get_communication_device_type()));
         return 0;
@@ -237,7 +235,7 @@ int LocalChip::get_host_channel_size(std::uint32_t channel) {
     // pcie device breaks or isn't present.
     if (!sysmem_manager_) {
         log_warning(
-            LogSiliconDriver,
+            LogUMD,
             "sysmem_manager was not initialized for {} communication protocol",
             DeviceTypeToString.at(tt_device_->get_communication_device_type()));
         return 0;
@@ -255,7 +253,7 @@ void LocalChip::write_to_sysmem(uint16_t channel, const void* src, uint64_t sysm
     // pcie device breaks or isn't present.
     if (!sysmem_manager_) {
         log_warning(
-            LogSiliconDriver,
+            LogUMD,
             "sysmem_manager was not initialized for {} communication protocol",
             DeviceTypeToString.at(tt_device_->get_communication_device_type()));
         return;
@@ -269,7 +267,7 @@ void LocalChip::read_from_sysmem(uint16_t channel, void* dest, uint64_t sysmem_s
     // pcie device breaks or isn't present.
     if (!sysmem_manager_) {
         log_warning(
-            LogSiliconDriver,
+            LogUMD,
             "sysmem_manager was not initialized for {} communication protocol",
             DeviceTypeToString.at(tt_device_->get_communication_device_type()));
         return;
@@ -279,7 +277,7 @@ void LocalChip::read_from_sysmem(uint16_t channel, void* dest, uint64_t sysmem_s
 
 void LocalChip::write_to_device(CoreCoord core, const void* src, uint64_t l1_dest, uint32_t size) {
     log_trace(
-        LogSiliconDriver,
+        LogUMD,
         "Chip::write_to_device to {} dev {} core {} at 0x{:x} size: {}",
         DeviceTypeToString.at(tt_device_->get_communication_device_type()),
         tt_device_->get_communication_device_id(),
@@ -287,15 +285,14 @@ void LocalChip::write_to_device(CoreCoord core, const void* src, uint64_t l1_des
         l1_dest,
         size);
 
-    if (tt_device_->get_communication_device_type() != IODeviceType::PCIe) {
-        tt_device_->write_to_device(src, core, l1_dest, size);
-        return;
-    }
-
     const uint8_t* buffer_addr = static_cast<const uint8_t*>(src);
 
     tt_xy_pair translated_core = translate_chip_coord_to_translated(core);
 
+    if (tt_device_->get_communication_device_type() != IODeviceType::PCIe) {
+        tt_device_->write_to_device(src, translated_core, l1_dest, size);
+        return;
+    }
     if (tlb_manager_->is_tlb_mapped(translated_core, l1_dest, size)) {
         tlb_configuration tlb_description = tlb_manager_->get_tlb_configuration(translated_core);
         if (tt_device_->get_pci_device()->bar4_wc != nullptr && tlb_description.size == BH_4GB_TLB_SIZE) {
@@ -321,13 +318,13 @@ void LocalChip::write_to_device(CoreCoord core, const void* src, uint64_t l1_des
             l1_dest += transfer_size;
             buffer_addr += transfer_size;
         }
-        log_trace(LogSiliconDriver, "Write done Dynamic TLB with pid={}", (long)getpid());
+        log_trace(LogUMD, "Write done Dynamic TLB with pid={}", (long)getpid());
     }
 }
 
 void LocalChip::read_from_device(CoreCoord core, void* dest, uint64_t l1_src, uint32_t size) {
     log_trace(
-        LogSiliconDriver,
+        LogUMD,
         "Chip::read_from_device from {} device {} core {} at 0x{:x} size: {}",
         DeviceTypeToString.at(tt_device_->get_communication_device_type()),
         tt_device_->get_communication_device_id(),
@@ -335,15 +332,14 @@ void LocalChip::read_from_device(CoreCoord core, void* dest, uint64_t l1_src, ui
         l1_src,
         size);
 
-    if (tt_device_->get_communication_device_type() != IODeviceType::PCIe) {
-        tt_device_->read_from_device(dest, core, l1_src, size);
-        return;
-    }
-
     uint8_t* buffer_addr = static_cast<uint8_t*>(dest);
 
     tt_xy_pair translated_core = translate_chip_coord_to_translated(core);
 
+    if (tt_device_->get_communication_device_type() != IODeviceType::PCIe) {
+        tt_device_->read_from_device(dest, translated_core, l1_src, size);
+        return;
+    }
     if (tlb_manager_->is_tlb_mapped(translated_core, l1_src, size)) {
         tlb_configuration tlb_description = tlb_manager_->get_tlb_configuration(translated_core);
         if (tt_device_->get_pci_device()->bar4_wc != nullptr && tlb_description.size == BH_4GB_TLB_SIZE) {
@@ -355,7 +351,7 @@ void LocalChip::read_from_device(CoreCoord core, void* dest, uint64_t l1_src, ui
             tt_device_->read_block(tlb_description.tlb_offset + l1_src % tlb_description.size, size, buffer_addr);
         }
         log_trace(
-            LogSiliconDriver,
+            LogUMD,
             "  read_block called with tlb_offset: {}, tlb_size: {}",
             tlb_description.tlb_offset,
             tlb_description.size);
@@ -363,7 +359,7 @@ void LocalChip::read_from_device(CoreCoord core, void* dest, uint64_t l1_src, ui
         std::string fallback_tlb = "LARGE_READ_TLB";
         const auto tlb_index = tlb_manager_->dynamic_tlb_config_.at(fallback_tlb);
         auto lock = acquire_mutex(fallback_tlb, tt_device_->get_pci_device()->get_device_num());
-        log_trace(LogSiliconDriver, "  dynamic tlb_index: {}", tlb_index);
+        log_trace(LogUMD, "  dynamic tlb_index: {}", tlb_index);
         while (size > 0) {
             auto [mapped_address, tlb_size] = tt_device_->set_dynamic_tlb(
                 tlb_index, translated_core, l1_src, tlb_manager_->dynamic_tlb_ordering_modes_.at(fallback_tlb));
@@ -374,7 +370,7 @@ void LocalChip::read_from_device(CoreCoord core, void* dest, uint64_t l1_src, ui
             l1_src += transfer_size;
             buffer_addr += transfer_size;
         }
-        log_trace(LogSiliconDriver, "Read done Dynamic TLB with pid={}", (long)getpid());
+        log_trace(LogUMD, "Read done Dynamic TLB with pid={}", (long)getpid());
     }
 }
 
@@ -383,6 +379,15 @@ void LocalChip::dma_write_to_device(const void* src, size_t size, CoreCoord core
         TT_THROW(
             "DMA operations are not supported for {} devices.",
             DeviceTypeToString.at(tt_device_->get_communication_device_type()));
+    }
+
+    if (get_tt_device()->get_pci_device()->get_dma_buffer().buffer == nullptr) {
+        log_warning(
+            LogUMD,
+            "DMA buffer was not allocated for PCI device {}, falling back to non-DMA (regular MMIO TLB) write.",
+            get_tt_device()->get_communication_device_id());
+        write_to_device(core, src, addr, size);
+        return;
     }
 
     static const std::string tlb_name = "LARGE_WRITE_TLB";
@@ -417,6 +422,15 @@ void LocalChip::dma_read_from_device(void* dst, size_t size, CoreCoord core, uin
             DeviceTypeToString.at(tt_device_->get_communication_device_type()));
     }
 
+    if (get_tt_device()->get_pci_device()->get_dma_buffer().buffer == nullptr) {
+        log_warning(
+            LogUMD,
+            "DMA buffer was not allocated for PCI device {}, falling back to non-DMA (regular MMIO TLB) read.",
+            get_tt_device()->get_communication_device_id());
+        read_from_device(core, dst, addr, size);
+        return;
+    }
+
     static const std::string tlb_name = "LARGE_READ_TLB";
     uint8_t* buffer = static_cast<uint8_t*>(dst);
     auto tlb_index = tlb_manager_->dynamic_tlb_config_.at(tlb_name);
@@ -440,14 +454,6 @@ void LocalChip::dma_read_from_device(void* dst, size_t size, CoreCoord core, uin
     }
 }
 
-std::function<void(uint32_t, uint32_t, const uint8_t*)> LocalChip::get_fast_pcie_static_tlb_write_callable() {
-    const auto callable = [this](uint32_t byte_addr, uint32_t num_bytes, const uint8_t* buffer_addr) {
-        tt_device_->write_block(byte_addr, num_bytes, buffer_addr);
-    };
-
-    return callable;
-}
-
 void LocalChip::write_to_device_reg(CoreCoord core, const void* src, uint64_t reg_dest, uint32_t size) {
     if (size % sizeof(uint32_t) != 0) {
         throw std::runtime_error("Size must be a multiple of 4 bytes");
@@ -465,7 +471,7 @@ void LocalChip::write_to_device_reg(CoreCoord core, const void* src, uint64_t re
     std::string fallback_tlb = "REG_TLB";
     const auto tlb_index = tlb_manager_->dynamic_tlb_config_.at(fallback_tlb);
     auto lock = lock_manager_.acquire_mutex(fallback_tlb, tt_device_->get_pci_device()->get_device_num());
-    log_debug(LogSiliconDriver, "  dynamic tlb_index: {}", tlb_index);
+    log_debug(LogUMD, "  dynamic tlb_index: {}", tlb_index);
 
     auto [mapped_address, tlb_size] =
         tt_device_->set_dynamic_tlb(tlb_index, translate_chip_coord_to_translated(core), reg_dest, tlb_data::Strict);
@@ -489,7 +495,7 @@ void LocalChip::read_from_device_reg(CoreCoord core, void* dest, uint64_t reg_sr
     std::string fallback_tlb = "REG_TLB";
     const auto tlb_index = tlb_manager_->dynamic_tlb_config_.at(fallback_tlb);
     auto lock = lock_manager_.acquire_mutex(fallback_tlb, tt_device_->get_pci_device()->get_device_num());
-    log_debug(LogSiliconDriver, "  dynamic tlb_index: {}", tlb_index);
+    log_debug(LogUMD, "  dynamic tlb_index: {}", tlb_index);
 
     auto [mapped_address, tlb_size] =
         tt_device_->set_dynamic_tlb(tlb_index, translate_chip_coord_to_translated(core), reg_src, tlb_data::Strict);
@@ -515,28 +521,12 @@ void LocalChip::wait_for_non_mmio_flush() {
 }
 
 void LocalChip::set_remote_transfer_ethernet_cores(const std::unordered_set<CoreCoord>& cores) {
-    // Depending on the device type, the implementation may vary.
-    // Currently JTAG doesn't support remote communication.
-    if (!remote_communication_) {
-        TT_THROW(
-            "Ethernet remote transfer is currently not supported for {} devices.",
-            DeviceTypeToString.at(tt_device_->get_communication_device_type()));
-    }
-
     // Set cores to be used by the broadcast communication.
     remote_communication_->set_remote_transfer_ethernet_cores(
         get_soc_descriptor().translate_coords_to_xy_pair(cores, CoordSystem::TRANSLATED));
 }
 
 void LocalChip::set_remote_transfer_ethernet_cores(const std::set<uint32_t>& channels) {
-    // Depending on the device type, the implementation may vary.
-    // Currently JTAG doesn't support remote communication.
-    if (!remote_communication_) {
-        TT_THROW(
-            "Ethernet remote transfer is currently not supported for {} devices.",
-            DeviceTypeToString.at(tt_device_->get_communication_device_type()));
-    }
-
     // Set cores to be used by the broadcast communication.
     remote_communication_->set_remote_transfer_ethernet_cores(
         get_soc_descriptor().get_eth_xy_pairs_for_channels(channels, CoordSystem::TRANSLATED));
@@ -620,7 +610,7 @@ void LocalChip::set_membar_flag(
                     cores_synced.insert(core);
                 } else {
                     log_trace(
-                        LogSiliconDriver,
+                        LogUMD,
                         "Waiting for core {} to recieve mem bar flag {} in function",
                         core.str(),
                         barrier_value);
@@ -661,10 +651,10 @@ void LocalChip::l1_membar(const std::unordered_set<CoreCoord>& cores) {
     } else {
         // Insert barrier on all cores with L1
         insert_host_to_device_barrier(
-            soc_descriptor_.get_cores(CoreType::TENSIX, CoordSystem::VIRTUAL),
+            soc_descriptor_.get_cores(CoreType::TENSIX, CoordSystem::TRANSLATED),
             l1_address_params.tensix_l1_barrier_base);
         insert_host_to_device_barrier(
-            soc_descriptor_.get_cores(CoreType::ETH, CoordSystem::VIRTUAL), l1_address_params.eth_l1_barrier_base);
+            soc_descriptor_.get_cores(CoreType::ETH, CoordSystem::TRANSLATED), l1_address_params.eth_l1_barrier_base);
     }
 }
 
@@ -681,7 +671,8 @@ void LocalChip::dram_membar(const std::unordered_set<CoreCoord>& cores) {
         // Insert Barrier on all DRAM Cores
         std::vector<CoreCoord> dram_cores_vector = {};
         for (std::uint32_t dram_idx = 0; dram_idx < soc_descriptor_.get_num_dram_channels(); dram_idx++) {
-            dram_cores_vector.push_back(soc_descriptor_.get_dram_core_for_channel(dram_idx, 0, CoordSystem::VIRTUAL));
+            dram_cores_vector.push_back(
+                soc_descriptor_.get_dram_core_for_channel(dram_idx, 0, CoordSystem::TRANSLATED));
         }
         insert_host_to_device_barrier(dram_cores_vector, dram_address_params.DRAM_BARRIER_BASE);
     }
@@ -690,7 +681,7 @@ void LocalChip::dram_membar(const std::unordered_set<CoreCoord>& cores) {
 void LocalChip::dram_membar(const std::unordered_set<uint32_t>& channels) {
     std::unordered_set<CoreCoord> dram_cores_to_sync = {};
     for (const auto& chan : channels) {
-        dram_cores_to_sync.insert(soc_descriptor_.get_dram_core_for_channel(chan, 0, CoordSystem::VIRTUAL));
+        dram_cores_to_sync.insert(soc_descriptor_.get_dram_core_for_channel(chan, 0, CoordSystem::TRANSLATED));
     }
     dram_membar(dram_cores_to_sync);
 }
@@ -704,25 +695,6 @@ void LocalChip::deassert_risc_resets() {
             0,
             0);
     }
-}
-
-void LocalChip::set_power_state(DevicePowerState state) {
-    int exit_code = 0;
-    if (soc_descriptor_.arch == tt::ARCH::WORMHOLE_B0) {
-        uint32_t msg = get_power_state_arc_msg(state);
-        exit_code = arc_msg(wormhole::ARC_MSG_COMMON_PREFIX | msg, true, 0, 0);
-    } else if (soc_descriptor_.arch == tt::ARCH::BLACKHOLE) {
-        if (state == DevicePowerState::BUSY) {
-            exit_code =
-                tt_device_->get_arc_messenger()->send_message((uint32_t)blackhole::ArcMessageType::AICLK_GO_BUSY);
-        } else {
-            exit_code =
-                tt_device_->get_arc_messenger()->send_message((uint32_t)blackhole::ArcMessageType::AICLK_GO_LONG_IDLE);
-        }
-    }
-    TT_ASSERT(exit_code == 0, "Failed to set power state to {} with exit code: {}", (int)state, exit_code);
-
-    wait_for_aiclk_value(tt_device_.get(), state);
 }
 
 int LocalChip::get_clock() { return tt_device_->get_clock(); }
