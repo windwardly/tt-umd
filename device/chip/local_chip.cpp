@@ -48,10 +48,10 @@ std::unique_ptr<LocalChip> LocalChip::create(
     if (device_type == IODeviceType::PCIe) {
         tlb_manager = std::make_unique<TLBManager>(tt_device.get());
         sysmem_manager = std::make_unique<SysmemManager>(tlb_manager.get(), num_host_mem_channels);
-        // Note that the eth_coord is not important here since this is only used for eth broadcasting.
-        remote_communication =
-            RemoteCommunication::create_remote_communication(tt_device.get(), {0, 0, 0, 0}, sysmem_manager.get());
     }
+    // Note that the eth_coord is not important here since this is only used for eth broadcasting.
+    remote_communication =
+        RemoteCommunication::create_remote_communication(tt_device.get(), {0, 0, 0, 0}, sysmem_manager.get());
 
     return std::unique_ptr<LocalChip>(new LocalChip(
         soc_descriptor,
@@ -79,10 +79,11 @@ std::unique_ptr<LocalChip> LocalChip::create(
     if (device_type == IODeviceType::PCIe) {
         tlb_manager = std::make_unique<TLBManager>(tt_device.get());
         sysmem_manager = std::make_unique<SysmemManager>(tlb_manager.get(), num_host_mem_channels);
-        // Note that the eth_coord is not important here since this is only used for eth broadcasting.
-        remote_communication =
-            RemoteCommunication::create_remote_communication(tt_device.get(), {0, 0, 0, 0}, sysmem_manager.get());
     }
+    // Note that the eth_coord is not important here since this is only used for eth broadcasting.
+    remote_communication =
+        RemoteCommunication::create_remote_communication(tt_device.get(), {0, 0, 0, 0}, sysmem_manager.get());
+
     return std::unique_ptr<LocalChip>(new LocalChip(
         soc_descriptor,
         std::move(tt_device),
@@ -116,6 +117,9 @@ LocalChip::LocalChip(
 LocalChip::~LocalChip() {
     // Deconstruct the LocalChip in the right order.
     // TODO: Use intializers in constructor to avoid having to explicitly declare the order of destruction.
+    cached_pcie_dma_tlb_window.reset();
+    cached_wc_tlb_window.reset();
+    cached_uc_tlb_window.reset();
     remote_communication_.reset();
     sysmem_manager_.reset();
     tlb_manager_.reset();
@@ -242,7 +246,7 @@ int LocalChip::get_host_channel_size(std::uint32_t channel) {
     }
 
     TT_ASSERT(channel < get_num_host_channels(), "Querying size for a host channel that does not exist.");
-    hugepage_mapping hugepage_map = sysmem_manager_->get_hugepage_mapping(channel);
+    HugepageMapping hugepage_map = sysmem_manager_->get_hugepage_mapping(channel);
     TT_ASSERT(hugepage_map.mapping_size, "Host channel size can only be queried after the device has been started.");
     return hugepage_map.mapping_size;
 }
@@ -574,7 +578,7 @@ int LocalChip::test_setup_interface() {
 void LocalChip::init_pcie_iatus() {
     // TODO: this should go away soon; KMD knows how to do this at page pinning time.
     for (size_t channel = 0; channel < sysmem_manager_->get_num_host_mem_channels(); channel++) {
-        hugepage_mapping hugepage_map = sysmem_manager_->get_hugepage_mapping(channel);
+        HugepageMapping hugepage_map = sysmem_manager_->get_hugepage_mapping(channel);
         size_t region_size = hugepage_map.mapping_size;
 
         if (!hugepage_map.mapping) {
@@ -700,4 +704,37 @@ void LocalChip::deassert_risc_resets() {
 int LocalChip::get_clock() { return tt_device_->get_clock(); }
 
 int LocalChip::get_numa_node() { return tt_device_->get_pci_device()->get_numa_node(); }
+
+TlbWindow* LocalChip::get_cached_wc_tlb_window(tlb_data config) {
+    if (cached_wc_tlb_window == nullptr) {
+        cached_wc_tlb_window = std::make_unique<TlbWindow>(
+            get_tt_device()->get_pci_device()->allocate_tlb(1 << 21, TlbMapping::WC), config);
+        return cached_wc_tlb_window.get();
+    }
+
+    cached_wc_tlb_window->configure(config);
+    return cached_wc_tlb_window.get();
+}
+
+TlbWindow* LocalChip::get_cached_uc_tlb_window(tlb_data config) {
+    if (cached_uc_tlb_window == nullptr) {
+        cached_uc_tlb_window = std::make_unique<TlbWindow>(
+            get_tt_device()->get_pci_device()->allocate_tlb(1 << 21, TlbMapping::UC), config);
+        return cached_uc_tlb_window.get();
+    }
+
+    cached_uc_tlb_window->configure(config);
+    return cached_uc_tlb_window.get();
+}
+
+TlbWindow* LocalChip::get_cached_pcie_dma_tlb_window(tlb_data config) {
+    if (cached_pcie_dma_tlb_window == nullptr) {
+        cached_pcie_dma_tlb_window = std::make_unique<TlbWindow>(
+            get_tt_device()->get_pci_device()->allocate_tlb(16 * 1024 * 1024, TlbMapping::WC), config);
+        return cached_pcie_dma_tlb_window.get();
+    }
+
+    cached_pcie_dma_tlb_window->configure(config);
+    return cached_pcie_dma_tlb_window.get();
+}
 }  // namespace tt::umd

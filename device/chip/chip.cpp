@@ -41,10 +41,10 @@ void Chip::set_default_params(ARCH arch) {
     dram_address_params = {0u};
 }
 
-void Chip::set_barrier_address_params(const barrier_address_params& barrier_address_params_) {
-    l1_address_params.tensix_l1_barrier_base = barrier_address_params_.tensix_l1_barrier_base;
-    l1_address_params.eth_l1_barrier_base = barrier_address_params_.eth_l1_barrier_base;
-    dram_address_params.DRAM_BARRIER_BASE = barrier_address_params_.dram_barrier_base;
+void Chip::set_barrier_address_params(const BarrierAddressParams& barrier_address_params) {
+    l1_address_params.tensix_l1_barrier_base = barrier_address_params.tensix_l1_barrier_base;
+    l1_address_params.eth_l1_barrier_base = barrier_address_params.eth_l1_barrier_base;
+    dram_address_params.DRAM_BARRIER_BASE = barrier_address_params.dram_barrier_base;
 }
 
 const ChipInfo& Chip::get_chip_info() { return chip_info_; }
@@ -60,10 +60,10 @@ void Chip::wait_eth_cores_training(const uint32_t timeout_ms) {
     TTDevice* tt_device = get_tt_device();
     for (const CoreCoord& eth_core : eth_cores) {
         tt_xy_pair actual_eth_core = eth_core;
-        if (chip_info_.board_type == BoardType::UBB) {
-            // TODO issue 1208: figure out why translated ETH don't work on UBB
-            actual_eth_core =
-                soc_descriptor_.translate_coord_to(eth_core, umd_use_noc1 ? CoordSystem::NOC1 : CoordSystem::NOC0);
+        if (get_tt_device()->get_arch() == tt::ARCH::WORMHOLE_B0) {
+            // Translated space for ETH cores is different than NOC1 and wait_eth_core training is expecting NOC0
+            // coordinates.
+            actual_eth_core = soc_descriptor_.translate_coord_to(eth_core, CoordSystem::NOC0);
         } else {
             actual_eth_core = translate_chip_coord_to_translated(eth_core);
         }

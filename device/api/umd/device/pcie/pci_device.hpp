@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <fmt/format.h>
+
 #include <cstdint>
 #include <cstdio>
 #include <map>
@@ -14,7 +16,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include "fmt/format.h"
 #include "umd/device/pcie/tlb_handle.hpp"
 #include "umd/device/tt_xy_pair.h"
 #include "umd/device/types/arch.hpp"
@@ -91,10 +92,6 @@ class PCIDevice {
     const semver_t kmd_version;      // KMD version
     const bool iommu_enabled;        // Whether the system is protected from this device by an IOMMU
     DmaBuffer dma_buffer{};
-
-private:
-    static std::optional<std::unordered_set<int>> get_visible_devices(
-        const std::unordered_set<int> &pci_target_devices);
 
 public:
     /**

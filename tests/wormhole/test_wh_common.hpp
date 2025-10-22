@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
+#include <gtest/gtest.h>
 
 #include "tests/test_utils/fetch_local_files.hpp"
 #include "tests/test_utils/stimulus_generators.hpp"
@@ -56,7 +57,7 @@ protected:
 
         set_barrier_params(*cluster);
 
-        device_params default_params;
+        DeviceParams default_params;
         cluster->start_device(default_params);
 
         cluster->deassert_risc_reset();
