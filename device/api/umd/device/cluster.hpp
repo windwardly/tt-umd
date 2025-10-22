@@ -732,7 +732,7 @@ private:
     bool use_translated_coords_for_eth_broadcast = true;
     tt::umd::semver_t eth_fw_version;  // Ethernet FW the driver is interfacing with
     // ERISC FW Version Required by UMD
-    static constexpr std::uint32_t SW_VERSION = TT_VERSION(6, 6, 0);
+    static constexpr std::uint32_t SW_VERSION = tt::umd::semver_t::semver_to_ver(6, 6, 0);
 };
 
 }  // namespace tt::umd

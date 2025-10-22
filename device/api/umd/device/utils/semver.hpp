@@ -59,6 +59,10 @@ public:
 
     std::string str() const { return fmt::format("{}.{}.{}{}", major, minor, patch, pre_release); }
 
+    constexpr static std::uint32_t semver_to_ver(uint64_t major, uint64_t minor, uint64_t patch) {
+        return (major << 16) + (minor << 12) + patch;
+    }
+
     bool operator<(const semver_t& other) const {
         return std::tie(major, minor, patch, pre_release) < std::tie(other.major, other.minor, other.patch, other.pre_release);
     }
