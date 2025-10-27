@@ -60,7 +60,7 @@ public:
     std::string str() const { return fmt::format("{}.{}.{}{}", major, minor, patch, pre_release); }
 
     constexpr static std::uint32_t semver_to_ver(uint64_t major, uint64_t minor, uint64_t patch) {
-        return (major << 16) + (minor << 12) + patch;
+        return ((major & 0xff) << 16) + ((minor & 0xf) << 12) + (patch & 0xfff);
     }
 
     bool operator<(const semver_t& other) const {
