@@ -45,15 +45,12 @@ public:
         uint64_t major = (version >> 24) & 0xFF;
         uint64_t minor = (version >> 16) & 0xFF;
         uint64_t patch = (version >> 8) & 0xFF;
-        std::string pre_release = ((version & 0xFF) == 0) ? "" : std::to_string(version & 0xFF);
+        std::string pre_release = ((version & 0xFF) == 0) ? "" : "-rc" + std::to_string(version & 0xFF);
         return semver_t(major, minor, patch, pre_release);
     }
 
     static semver_t from_wormhole_eth_firmware_tag(std::uint32_t version) {
-        uint64_t major = (version >> 16) & 0xff;
-        uint64_t minor = (version >> 12) & 0xf;
-        uint64_t patch = version & 0xfff;
-        return semver_t(major, minor, patch);
+        return semver_t(version);
     }
 
     semver_t(const std::string& version_str) : semver_t(parse(version_str)) {}
