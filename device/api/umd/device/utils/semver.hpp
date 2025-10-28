@@ -31,6 +31,7 @@ public:
         major = (version >> 16) & 0xff;
         minor = (version >> 12) & 0xf;
         patch = version & 0xfff;
+        pre_release = "";
     }
 
     semver_t(uint64_t major, uint64_t minor, uint64_t patch, std::string pre_release = "") {
@@ -44,7 +45,7 @@ public:
         uint64_t major = (version >> 24) & 0xFF;
         uint64_t minor = (version >> 16) & 0xFF;
         uint64_t patch = (version >> 8) & 0xFF;
-        std::string pre_release = std::to_string(version & 0xFF);
+        std::string pre_release = ((version & 0xFF) == 0) ? "" : std::to_string(version & 0xFF);
         return semver_t(major, minor, patch, pre_release);
     }
 
